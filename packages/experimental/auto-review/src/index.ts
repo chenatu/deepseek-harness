@@ -679,12 +679,14 @@ async function classifyRisk(
   shown.set(snapshot.pending.key, snapshot.pending.schema)
   // This review prompt is sent only through ctx.llm.stream and never enters a Session log.
   // The Session id also supplies provider routing and request-extension identity.
+  // The reviewer inherits the Session's route, whose model may reject a sampling
+  // parameter (OpenAI reasoning models refuse `temperature`); that rejection would
+  // fail this review and therefore the pending call, so sampling stays at its default.
   const options: GenerateOptions = deepFreeze({
     provider: snapshot.provider,
     model: snapshot.model,
     system: REVIEW_POLICY,
     messages: reviewMessages(snapshot),
-    temperature: 0,
     sessionId: agent.session.id,
     purpose: 'auto-review',
     signal,

@@ -413,10 +413,10 @@ describe('native review request', () => {
       provider: 'review',
       model: 'same-model',
       system: EXPECTED_REVIEW_POLICY,
-      temperature: 0,
       sessionId: session.id,
       purpose: 'auto-review',
     })
+    expect(request.temperature).toBeUndefined()
     expect(request.maxTokens).toBeUndefined()
     expect(request.tools).toBeUndefined()
     for (const message of request.messages) {
@@ -508,6 +508,38 @@ describe('native review request', () => {
     expect(requestText).not.toContain('tool-source secret')
     expect(requestText).not.toContain('unstarted-call')
     expect(requestText).not.toContain('obsolete description')
+  })
+
+  it('leaves sampling at the model default so a route that rejects temperature still reviews', async () => {
+    const { ctx, adapter } = await harness([
+      async function* (options: GenerateOptions) {
+        if (options.temperature !== undefined) {
+          throw new Error("Unsupported parameter: 'temperature' is not supported with this model.")
+        }
+        yield* decisionChunks('{"risk":"low","decision":"allow"}')
+      },
+    ])
+    const probe = registerProbe(ctx)
+    const { session, agent } = autoSession(ctx, 'native-sampling-default')
+    appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+    const callId = ToolCallId('sampling-default-call')
+    appendAssistant(session, [
+      { type: 'tool-call', id: callId, name: 'probe', arguments: '{"path":"target"}' },
+    ], 1, 1)
+    appendNativeCall(session, callId, 'probe', '{"path":"target"}', 1, 1)
+
+    const result = await executeToolFixture(ctx, {
+      signal: new AbortController().signal,
+      callId,
+      name: 'probe',
+      arguments: { path: 'target' },
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+    expect(probe.runs()).toBe(1)
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]!.temperature).toBeUndefined()
   })
 
   it('scopes reused native call ids and started prefixes to one assistant step', async () => {
